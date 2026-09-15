@@ -1,0 +1,542 @@
+/* Bear & Honey - Rosh HaShana maze game
+   Layout notes:
+   - The page is RTL (Hebrew). The maze itself is forced LTR in index.html
+     so the grid is not mirrored.
+   - Tile size comes from the --tile variable, clamped so the 15x11 board
+     always fits on a laptop screen without scrolling. */
+
+:root {
+  --tile: clamp(28px, min(5.2vw, 7vh), 54px);
+  --cols: 15;
+  --rows: 11;
+
+  --bg: #1b2b3a;
+  --bg-accent: #24394d;
+  --wall: #1f4a33;
+  --floor: #f4e3c1;
+  --floor-alt: #efdab2;
+  --gold: #f2b134;
+  --text: #f7f3e8;
+  --muted: #a8bccb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 50% 0%, var(--bg-accent), var(--bg));
+  color: var(--text);
+  font-family: "Rubik", "Heebo", "Arial Hebrew", Arial, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.game {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 900px;
+}
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(1.2rem, 3.4vw, 2rem);
+  letter-spacing: 0.5px;
+}
+
+.stats {
+  display: flex;
+  gap: 10px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 2px solid rgba(242, 177, 52, 0.45);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: clamp(0.95rem, 2.2vw, 1.15rem);
+  font-weight: 700;
+}
+
+.stat-icon {
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.stat-value {
+  min-width: 1.2ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pulse when the coin count changes. */
+.stat.bump {
+  animation: bump 420ms ease;
+}
+
+@keyframes bump {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.22);
+    border-color: var(--gold);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.hint-line,
+.status {
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  text-align: center;
+}
+
+.status {
+  min-height: 1.4em;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+/* ---------- maze ---------- */
+
+.maze {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--tile));
+  grid-template-rows: repeat(var(--rows), var(--tile));
+  gap: 0;
+  padding: 10px;
+  background: #143024;
+  border: 4px solid #0e2018;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.cell {
+  width: var(--tile);
+  height: var(--tile);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--tile) * 0.62);
+  line-height: 1;
+  user-select: none;
+}
+
+.cell.wall {
+  background: var(--wall);
+}
+
+.cell.floor {
+  background: var(--floor);
+}
+
+/* Subtle checkerboard so long corridors stay readable. */
+.cell.floor.alt {
+  background: var(--floor-alt);
+}
+
+.cell.trigger {
+  font-size: calc(var(--tile) * 0.5);
+  animation: float 2.4s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.cell.honey {
+  font-size: calc(var(--tile) * 0.7);
+}
+
+.cell.bear {
+  font-size: calc(var(--tile) * 0.72);
+}
+
+/* Shake the bear when it walks into a tree, so a blocked move reads as
+   "there is a wall" rather than "the key did not work". */
+.cell.bump-wall {
+  animation: bump-wall 180ms ease;
+}
+
+@keyframes bump-wall {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  30% {
+    transform: translate(-2px, 1px) rotate(-6deg);
+  }
+  70% {
+    transform: translate(2px, -1px) rotate(6deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell.trigger,
+  .cell.bump-wall,
+  .stat.bump {
+    animation: none;
+  }
+}
+
+/* ---------- question popup ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 16, 24, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #2c4258, #22344a);
+  border: 3px solid var(--gold);
+  border-radius: 18px;
+  padding: clamp(16px, 3vw, 26px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  animation: pop-in 220ms ease;
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dialog-tag {
+  margin: 0 0 6px;
+  color: var(--gold);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.dialog-intro {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(242, 177, 52, 0.14);
+  border: 1px solid rgba(242, 177, 52, 0.4);
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  line-height: 1.5;
+}
+
+.dialog-intro[hidden] {
+  display: none;
+}
+
+.dialog-question {
+  margin: 0 0 18px;
+  font-size: clamp(1.05rem, 2.6vw, 1.45rem);
+  line-height: 1.45;
+}
+
+.answers {
+  display: grid;
+  gap: 10px;
+}
+
+.answer-btn {
+  width: 100%;
+  text-align: right;
+  font: inherit;
+  font-size: clamp(0.95rem, 2.2vw, 1.1rem);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.answer-btn:hover:not(:disabled),
+.answer-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--gold);
+  outline: none;
+}
+
+.answer-btn:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.answer-btn:disabled {
+  cursor: default;
+}
+
+/* Answer left unpicked after the question is resolved. */
+.answer-btn.faded {
+  opacity: 0.4;
+}
+
+/* Removed by the 50:50 clue. */
+.answer-btn.eliminated {
+  opacity: 0.22;
+  text-decoration: line-through;
+}
+
+.answer-btn.correct {
+  background: rgba(70, 180, 100, 0.28);
+  border-color: #5fd07f;
+  opacity: 1;
+}
+
+.answer-btn.wrong {
+  background: rgba(200, 70, 70, 0.28);
+  border-color: #e37272;
+  opacity: 1;
+}
+
+.feedback {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: clamp(0.9rem, 2.1vw, 1.05rem);
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.26);
+}
+
+.feedback[hidden] {
+  display: none;
+}
+
+.feedback.good {
+  border: 2px solid #5fd07f;
+}
+
+.feedback.bad {
+  border: 2px solid #e37272;
+}
+
+.feedback.hint {
+  border: 2px solid var(--gold);
+}
+
+.clues {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.clues[hidden] {
+  display: none;
+}
+
+.clue-btn {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(242, 177, 52, 0.16);
+  border: 2px solid rgba(242, 177, 52, 0.5);
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.clue-btn:hover:not(:disabled),
+.clue-btn:focus-visible {
+  background: rgba(242, 177, 52, 0.3);
+  outline: none;
+}
+
+.clue-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.price {
+  display: inline-block;
+  font-size: 0.8em;
+  opacity: 0.85;
+}
+
+.continue-btn {
+  width: 100%;
+  margin-top: 16px;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1b2b3a;
+  background: var(--gold);
+  border: none;
+  border-radius: 12px;
+  padding: 13px;
+  cursor: pointer;
+}
+
+.continue-btn[hidden] {
+  display: none;
+}
+
+.continue-btn:hover,
+.continue-btn:focus-visible {
+  background: #ffc555;
+  outline: none;
+}
+
+/* ---------- win screen ---------- */
+
+.win-dialog {
+  text-align: center;
+}
+
+.win-emoji {
+  margin: 0;
+  font-size: clamp(2.6rem, 9vw, 4rem);
+  line-height: 1.1;
+  animation: cheer 1.6s ease-in-out infinite;
+}
+
+@keyframes cheer {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(2deg);
+  }
+}
+
+.win-title {
+  margin: 8px 0 4px;
+  font-size: clamp(1.2rem, 3.2vw, 1.7rem);
+  color: var(--gold);
+}
+
+.win-subtitle {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: clamp(0.95rem, 2.2vw, 1.1rem);
+}
+
+.scoreboard {
+  margin: 0 0 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.26);
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+
+.score-row dt {
+  font-size: clamp(0.9rem, 2.1vw, 1.05rem);
+}
+
+.score-row dd {
+  margin: 0;
+  font-size: clamp(1.1rem, 2.6vw, 1.35rem);
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog,
+  .win-emoji {
+    animation: none;
+  }
+}
+
+/* Error panel shown if questions.md cannot be loaded (see game.js). */
+.error-panel {
+  max-width: 560px;
+  background: #4a1d1d;
+  border: 2px solid #e06666;
+  border-radius: 12px;
+  padding: 16px 20px;
+  line-height: 1.6;
+}
+
+.error-panel code {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  padding: 4px 10px;
+  margin: 4px 0;
+  direction: ltr;
+  text-align: left;
+  font-size: 0.95em;
+  user-select: all;
+}
+
+.error-panel ul {
+  margin: 10px 0;
+  padding-inline-start: 22px;
+}
+
+.error-panel li {
+  margin: 4px 0;
+}
+
+.error-panel p {
+  margin: 10px 0 4px;
+}
+
+.error-footer {
+  color: #f0b8b8;
+  font-size: 0.9em;
+}

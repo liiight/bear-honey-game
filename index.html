@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>הדוב והדבש - משחק ראש השנה</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐻</text></svg>"
+    />
+  </head>
+  <body>
+    <main class="game">
+      <header class="topbar">
+        <h1 class="title">🐻 הדוב והדבש 🍯</h1>
+        <div class="stats">
+          <div class="stat" title="מטבעות שנאספו">
+            <span class="stat-icon">🪙</span>
+            <span class="stat-value" id="coin-count">0</span>
+          </div>
+          <div class="stat" title="שאלות שנענו נכון">
+            <span class="stat-icon">✅</span>
+            <span class="stat-value" id="score-count">0</span>
+          </div>
+        </div>
+      </header>
+
+      <p class="hint-line">
+        הזיזו את הדוב עם מקשי החיצים (או W A S D) והגיעו אל סיר הדבש
+      </p>
+
+      <!--
+        dir="ltr" is deliberate: the page is RTL for Hebrew text, but a
+        right-to-left grid would mirror the maze and make the right arrow
+        key move the bear left. Keep this attribute.
+      -->
+      <div id="maze" class="maze" dir="ltr" aria-label="מבוך"></div>
+
+      <p class="status" id="status">כדי לפתוח את סיר הדבש דרושים 3 מטבעות</p>
+    </main>
+
+    <!-- Question popup. Hidden until the bear steps on a ❓ tile. -->
+    <div
+      class="overlay"
+      id="overlay"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="question-text"
+    >
+      <div class="dialog">
+        <p class="dialog-tag" id="question-tag">שאלה</p>
+        <p class="dialog-intro" id="question-intro" hidden></p>
+        <h2 class="dialog-question" id="question-text"></h2>
+
+        <div class="answers" id="answers"></div>
+
+        <p class="feedback" id="feedback" hidden></p>
+
+        <div class="clues" id="clues">
+          <button type="button" class="clue-btn" id="hint-btn">
+            💡 רמז <span class="price">מטבע 1</span>
+          </button>
+          <button type="button" class="clue-btn" id="fifty-btn">
+            ✂️ חצי חצי <span class="price">2 מטבעות</span>
+          </button>
+        </div>
+
+        <button type="button" class="continue-btn" id="continue-btn" hidden>
+          ממשיכים
+        </button>
+      </div>
+    </div>
+
+    <!-- Win screen, shown once the honey pot is open. -->
+    <div class="overlay" id="win-overlay" hidden role="dialog" aria-modal="true">
+      <div class="dialog win-dialog">
+        <p class="win-emoji">🐻🍯</p>
+        <h2 class="win-title">כל הכבוד! הדוב אכל את הדבש</h2>
+        <p class="win-subtitle">שנה טובה ומתוקה!</p>
+
+        <dl class="scoreboard">
+          <div class="score-row">
+            <dt>תשובות נכונות</dt>
+            <dd id="win-score">0</dd>
+          </div>
+          <div class="score-row">
+            <dt>מטבעות שנשארו</dt>
+            <dd id="win-coins">0</dd>
+          </div>
+          <div class="score-row">
+            <dt>צעדים במבוך</dt>
+            <dd id="win-steps">0</dd>
+          </div>
+        </dl>
+
+        <button type="button" class="continue-btn" id="restart-btn">
+          משחק חדש 🔄
+        </button>
+      </div>
+    </div>
+
+    <script src="game.js"></script>
+  </body>
+</html>
