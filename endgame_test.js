@@ -31,6 +31,41 @@ function shownQuestion() {
   );
 }
 
+/**
+ * Put the bear one tile from the honey pot and step onto it.
+ * The maze is generated, so the pot is somewhere different every time.
+ */
+function stepOntoPot() {
+  const route = game.solveFromBear();
+  // Walk all but the final step, then take it so reachedHoney() fires.
+  route.slice(0, -1).forEach(press);
+  press(route[route.length - 1]);
+}
+
+/** Walk to the pot, clearing any question tiles encountered on the way. */
+function goToPot(answerCorrectly = false) {
+  let guard = 0;
+  while (!state.won && guard < 400) {
+    const route = game.solveFromBear();
+    if (route.length === 0) break;
+    for (const step of route) {
+      press(step);
+      guard++;
+      if (!ids.overlay.hidden) {
+        if (isBonusQuestion()) return;
+        answer(answerCorrectly);
+        break;
+      }
+      if (state.won) return;
+    }
+  }
+}
+
+/** Bonus questions are the ones asked at the pot itself. */
+function isBonusQuestion() {
+  return ids["question-tag"].textContent.includes("בונוס");
+}
+
 /** Click an answer on the open popup and dismiss it. */
 function answer(correctly) {
   const q = shownQuestion();
@@ -49,9 +84,10 @@ function run() {
   console.log("-- arriving at the pot with no coins --");
 
   game.restartGame();
-  state.bear = { row: 9, col: 12 };
+  // Walk to the pot answering everything wrong, so the bear arrives broke.
+  goToPot(false);
   state.coins = 0;
-  press("ArrowRight");
+  if (!popupOpen()) stepOntoPot();
 
   check("bonus question opens", popupOpen(), true);
   check("not won while short", state.won, false);
@@ -116,14 +152,33 @@ function run() {
   check("score reset", state.score, 0);
   check("steps reset", state.steps, 0);
   check("won flag cleared", state.won, false);
-  check("bear back at the start", `${state.bear.row},${state.bear.col}`, "1,1");
+  // A restart builds a brand new maze, so the start tile moves.
+  const fresh = game.getMaze();
+  const startRow = fresh.findIndex((row) => row.includes("S"));
+  const startCol = fresh[startRow].indexOf("S");
+  check(
+    "bear placed on the new start tile",
+    `${state.bear.row},${state.bear.col}`,
+    `${startRow},${startCol}`,
+  );
   check("triggers reset", state.usedTriggers.size, 0);
   check("question pool refilled", state.unasked.length, state.questions.length);
   check("not paused", state.paused, false);
+  check(
+    "question marks redrawn",
+    fresh.reduce((n, row) => n + row.split("?").length - 1, 0) > 0,
+    true,
+  );
 
   // The board must be playable again after a restart.
-  press("ArrowRight");
-  check("bear moves after restart", `${state.bear.row},${state.bear.col}`, "1,2");
+  const before = `${state.bear.row},${state.bear.col}`;
+  const firstMove = game.solveFromBear()[0];
+  press(firstMove);
+  check(
+    "bear moves after restart",
+    `${state.bear.row},${state.bear.col}` !== before,
+    true,
+  );
 
   /* ---------- clue spending cannot strand the player ---------- */
   console.log("\n-- spending everything on clues --");
@@ -133,8 +188,8 @@ function run() {
   // Answer every trigger correctly but blow all coins on clues, then walk
   // to the pot. This is the exact softlock scenario.
   state.coins = 0;
-  state.bear = { row: 9, col: 12 };
-  press("ArrowRight");
+  goToPot(false);
+  if (!popupOpen()) stepOntoPot();
 
   let guard = 0;
   while (popupOpen() && guard < 50) {
@@ -152,9 +207,9 @@ function run() {
   console.log("\n-- no clue buying at the pot --");
 
   game.restartGame();
-  state.bear = { row: 9, col: 12 };
+  goToPot(false);
   state.coins = 2;
-  press("ArrowRight");
+  if (!popupOpen()) stepOntoPot();
 
   check("bonus question open", popupOpen(), true);
   check("clue row hidden", ids.clues.hidden, true);
@@ -175,8 +230,8 @@ function run() {
   let worstCase = 0;
   for (let run = 0; run < 200; run++) {
     game.restartGame();
-    state.bear = { row: 9, col: 12 };
-    press("ArrowRight");
+    goToPot(Math.random() < 0.5);
+    if (!popupOpen() && !state.won) stepOntoPot();
 
     let asked = 0;
     while (popupOpen() && asked < 200) {

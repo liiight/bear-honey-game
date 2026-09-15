@@ -90,17 +90,16 @@ def main():
     check("style.css linked", 'href="style.css"' in html)
     check("game.js linked", 'src="game.js"' in html)
 
-    # 6. The two maze copies must match.
-    def maze_of(text, var):
-        block = re.search(var + r"\s*=\s*\[(.*?)\]", text, re.S)
-        return re.findall(r'"([^"]*)"', block.group(1)) if block else []
-
-    js_maze = maze_of(js, "MAZE")
-    py_maze = maze_of((HERE / "check_maze.py").read_text(encoding="utf-8"), "MAZE")
+    # 6. The maze is generated, so there must be no stale hardcoded copy
+    #    left behind in either file.
     check(
-        "game.js and check_maze.py hold the same maze",
-        js_maze == py_maze and js_maze,
-        "edit both copies together",
+        "game.js has no hardcoded maze",
+        not re.search(r"const MAZE\s*=\s*\[", js),
+        "the maze is generated at runtime now",
+    )
+    check(
+        "the generator is wired into startup",
+        "buildNewMaze()" in js and "installMaze" in js,
     )
 
     # 7. Movement must key off physical codes, not characters, or WASD

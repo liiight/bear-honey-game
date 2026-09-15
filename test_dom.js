@@ -149,7 +149,13 @@ function loadGame() {
         state, MAZE, COINS_TO_OPEN_POT, CLUE_COST, FIFTY_FIFTY_REMAINING, ready,
         parseQuestions, drawQuestion, shuffle, showFatalError,
         askQuestion, closeQuestion, useHint, useFiftyFifty,
-        restartGame, reachedHoney,
+        restartGame, reachedHoney, installMaze, generateMaze, buildNewMaze,
+        validateMaze, MAZE_CONFIG,
+        /* MAZE is rebuilt on every load, so hand back a getter rather
+           than a stale snapshot. */
+        getMaze: () => MAZE,
+        /* Arrow key route from the bear to the honey pot. */
+        solveFromBear: () => routeToHoney(),
       });`,
   );
 }

@@ -6,9 +6,18 @@
      always fits on a laptop screen without scrolling. */
 
 :root {
-  --tile: clamp(28px, min(5.2vw, 7vh), 54px);
-  --cols: 15;
-  --rows: 11;
+  /*
+    The board is generated, so its size can change. Tiles are sized from
+    the viewport divided by the current column/row count, which keeps a
+    21x15 board on screen without scrolling.
+  */
+  --cols: 21;
+  --rows: 15;
+  --tile: clamp(
+    18px,
+    min(calc(92vw / var(--cols)), calc(74vh / var(--rows))),
+    46px
+  );
 
   --bg: #1b2b3a;
   --bg-accent: #24394d;
@@ -46,7 +55,7 @@ body {
   align-items: center;
   gap: 12px;
   width: 100%;
-  max-width: 900px;
+  max-width: 1200px;
 }
 
 /* ---------- top bar ---------- */

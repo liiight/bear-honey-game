@@ -33,7 +33,9 @@ terminal to stop it.
 
 ### The rules
 
-- Step on a ❓ tile and a Rosh HaShana question appears.
+- The maze is different every single game.
+- Step on a ❓ tile and a Rosh HaShana question appears. The ❓ then
+  disappears, so the board shows which questions are still waiting.
 - A correct answer earns **1 coin** 🪙.
 - A wrong answer earns nothing, but the correct answer is shown.
 - **💡 רמז** costs 1 coin and reveals that question's hint.
@@ -85,24 +87,34 @@ passes, the game will load the file.
 
 ---
 
-## Editing the maze
+## The maze
 
-The maze lives in the `MAZE` array near the top of `game.js`:
+The maze is **generated fresh every time the page loads or the game is
+restarted**, so no two runs are the same. There is no fixed layout to edit.
 
-```
-#  wall (tree)      .  floor
-S  bear start       H  honey pot
-?  question trigger
-```
+The bear and the honey pot are always placed on the two furthest apart
+tiles in the maze, so the route is never trivially short. Question tiles
+are spread evenly along that route.
 
-**The same maze is also in `check_maze.py`. Change both.** After editing:
+To change how it feels, edit `MAZE_CONFIG` at the top of `game.js`:
+
+| Setting | Meaning |
+| ------- | ------- |
+| `cellCols`, `cellRows` | Maze size. The board renders at `cells * 2 + 1`, so 10 x 7 gives a 21 x 15 board. |
+| `triggers` | How many question tiles to place. |
+| `straightness` | Higher means longer corridors, lower means more junctions and more confusion. |
+| `loopiness` | Fraction of walls removed to create loops. `0` gives a perfect maze where every wrong turn must be retraced. |
+
+After changing anything, check the generator still produces playable mazes:
 
 ```bash
-python3 check_maze.py
+python3 check_maze.py        # 300 mazes
+python3 check_maze.py 2000   # or more
 ```
 
-It verifies the maze is rectangular, fully enclosed, that the honey pot is
-reachable, and that no floor tile is walled off.
+It generates mazes with the real game code and verifies every one is the
+right size, fully enclosed, has a reachable honey pot, has no walled off
+pockets, and that no two mazes come out identical.
 
 ### Other things you might want to change
 
@@ -159,7 +171,7 @@ without blurring, which is better for printing on a poster.
 | `game.js` | Maze, movement, questions, coins, win screen. |
 | `questions.md` | **The game content. Edit this.** |
 | `check_questions.py` | Validates `questions.md`. |
-| `check_maze.py` | Validates the maze layout. |
+| `check_maze.py` | Generates many mazes and checks each is playable. |
 | `run_tests.sh` | Runs every check below. |
 | `test_dom.js` | Shared browser stub for the Node tests. |
 | `wiring_test.py` | Checks the HTML, CSS and JS agree. |

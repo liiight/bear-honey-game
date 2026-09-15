@@ -1,5 +1,6 @@
 /* Bear & Honey - Rosh HaShana maze game
-   Step 1: draw the board. Movement, questions and coins come next.
+
+   The maze is generated fresh on every load, so no two games are alike.
 
    Maze legend:
      #  wall
@@ -8,26 +9,37 @@
      H  honey pot
      ?  question trigger
 
-   If you edit MAZE, keep check_maze.py in sync and run:
-       python3 check_maze.py
-   It verifies the board is the right size and still solvable. */
+   To change the size or difficulty, edit MAZE_CONFIG below.
+   To check the generator still behaves, run:
+       python3 check_maze.py   (validates many generated mazes)
+*/
 
-const MAZE = [
-  "###############",
-  "#S..?.#.......#",
-  "#.###.#.#####.#",
-  "#.#...#.#..?#.#",
-  "#.#.###.#.#.#.#",
-  "#...#.?.#.#...#",
-  "#.###.###.###.#",
-  "#.#...#...#..?#",
-  "#.#.#####.#.###",
-  "#..?#.....#..H#",
-  "###############",
-];
+const MAZE_CONFIG = {
+  /*
+    Size in "cells". The rendered grid is always odd-sized because walls
+    sit between cells, so the board works out at (cells * 2 + 1).
+    10 x 7 cells -> a 21 x 15 board.
+  */
+  cellCols: 10,
+  cellRows: 7,
 
-const ROWS = MAZE.length;
-const COLS = MAZE[0].length;
+  /** Question tiles placed along the route. */
+  triggers: 5,
+
+  /*
+    Higher means twistier. On each step the generator keeps going in the
+    same direction with this probability; lower values produce more
+    junctions and a more confusing maze.
+  */
+  straightness: 0.35,
+
+  /*
+    Fraction of dead ends to reconnect into loops. A perfect maze (0) has
+    exactly one route anywhere, which makes wrong turns tedious to undo.
+    A few loops keep it interesting without making it trivial.
+  */
+  loopiness: 0.12,
+};
 
 const TILE = {
   WALL: "#",
@@ -56,10 +68,299 @@ const CLUE_COST = {
 
 const COIN_PER_CORRECT = 1;
 
+/* ---------- maze generation ---------- */
+
+/*
+  Randomised depth-first search ("recursive backtracker").
+
+  The grid is (cells * 2 + 1) so that every other row and column is a wall
+  that can be carved through. Carving from cell to cell two steps at a time
+  guarantees the result is always fully connected, so the honey pot can
+  never be sealed off.
+*/
+
+let MAZE = [];
+let ROWS = 0;
+let COLS = 0;
+
+function randInt(n) {
+  return Math.floor(Math.random() * n);
+}
+
+function pick(items) {
+  return items[randInt(items.length)];
+}
+
+/** Build a maze and place the bear, the honey pot and the question tiles. */
+function generateMaze(config = MAZE_CONFIG) {
+  const { cellCols, cellRows, straightness, loopiness } = config;
+
+  const rows = cellRows * 2 + 1;
+  const cols = cellCols * 2 + 1;
+
+  // Start solid, then carve corridors out of it.
+  const grid = Array.from({ length: rows }, () => new Array(cols).fill(TILE.WALL));
+
+  const seen = Array.from({ length: cellRows }, () =>
+    new Array(cellCols).fill(false),
+  );
+
+  const toGrid = (cr, cc) => [cr * 2 + 1, cc * 2 + 1];
+  const DIRS = [
+    [-1, 0],
+    [1, 0],
+    [0, -1],
+    [0, 1],
+  ];
+
+  const startCell = [randInt(cellRows), randInt(cellCols)];
+  const stack = [startCell];
+  seen[startCell[0]][startCell[1]] = true;
+  {
+    const [gr, gc] = toGrid(startCell[0], startCell[1]);
+    grid[gr][gc] = TILE.FLOOR;
+  }
+
+  let lastDir = null;
+
+  while (stack.length > 0) {
+    const [cr, cc] = stack[stack.length - 1];
+
+    const options = DIRS.filter(([dr, dc]) => {
+      const nr = cr + dr;
+      const nc = cc + dc;
+      return (
+        nr >= 0 && nr < cellRows && nc >= 0 && nc < cellCols && !seen[nr][nc]
+      );
+    });
+
+    if (options.length === 0) {
+      stack.pop();
+      lastDir = null;
+      continue;
+    }
+
+    // Prefer carrying straight on sometimes, which produces long corridors
+    // broken by junctions rather than a uniform mush.
+    let dir = null;
+    if (lastDir && Math.random() < straightness) {
+      dir = options.find(([dr, dc]) => dr === lastDir[0] && dc === lastDir[1]);
+    }
+    if (!dir) dir = pick(options);
+
+    const [dr, dc] = dir;
+    const nr = cr + dr;
+    const nc = cc + dc;
+
+    // Knock out the wall between the two cells.
+    const [gr, gc] = toGrid(cr, cc);
+    grid[gr + dr][gc + dc] = TILE.FLOOR;
+    const [ngr, ngc] = toGrid(nr, nc);
+    grid[ngr][ngc] = TILE.FLOOR;
+
+    seen[nr][nc] = true;
+    stack.push([nr, nc]);
+    lastDir = dir;
+  }
+
+  addLoops(grid, rows, cols, loopiness);
+
+  return placeFeatures(grid, rows, cols, config);
+}
+
+/**
+ * Punch a few extra openings so the maze is not a perfect tree.
+ * Without this every wrong turn has to be retraced step for step.
+ */
+function addLoops(grid, rows, cols, loopiness) {
+  if (loopiness <= 0) return;
+
+  const candidates = [];
+  for (let r = 1; r < rows - 1; r++) {
+    for (let c = 1; c < cols - 1; c++) {
+      if (grid[r][c] !== TILE.WALL) continue;
+      // Only remove a wall that separates two corridors, never a corner.
+      const horizontal =
+        grid[r][c - 1] === TILE.FLOOR && grid[r][c + 1] === TILE.FLOOR;
+      const vertical =
+        grid[r - 1][c] === TILE.FLOOR && grid[r + 1][c] === TILE.FLOOR;
+      if (horizontal !== vertical) candidates.push([r, c]);
+    }
+  }
+
+  const count = Math.floor(candidates.length * loopiness);
+  shuffle(candidates)
+    .slice(0, count)
+    .forEach(([r, c]) => {
+      grid[r][c] = TILE.FLOOR;
+    });
+}
+
+/**
+ * Put the bear and the honey pot far apart, then scatter question tiles
+ * along the route between them.
+ */
+function placeFeatures(grid, rows, cols, config) {
+  const floors = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (grid[r][c] === TILE.FLOOR) floors.push([r, c]);
+    }
+  }
+
+  /*
+    Double sweep to find the two furthest apart tiles in the maze (the
+    graph diameter): walk from anywhere to find one extreme, then from
+    that extreme to find the other. Placing the bear and the pot on those
+    two tiles guarantees a long route instead of relying on luck.
+  */
+  const farthestFrom = (origin) => {
+    const dist = floodFill(grid, rows, cols, origin);
+    let best = origin;
+    let bestDist = -1;
+    dist.forEach((d, k) => {
+      if (d > bestDist) {
+        bestDist = d;
+        best = k.split(",").map(Number);
+      }
+    });
+    return { cell: best, dist: bestDist };
+  };
+
+  const firstEnd = farthestFrom(pick(floors)).cell;
+  const other = farthestFrom(firstEnd);
+
+  const start = firstEnd;
+  const honey = other.cell;
+
+  const path = shortestPath(grid, rows, cols, start, honey);
+
+  // Spread the triggers evenly along the solution path, skipping the two
+  // end tiles so they never sit on top of the bear or the pot.
+  const inner = path.slice(1, -1);
+  const wanted = Math.min(config.triggers, inner.length);
+  const triggers = [];
+  for (let i = 0; i < wanted; i++) {
+    const at = Math.round(((i + 1) * inner.length) / (wanted + 1));
+    const cell = inner[Math.min(at, inner.length - 1)];
+    if (cell && !triggers.some(([r, c]) => r === cell[0] && c === cell[1])) {
+      triggers.push(cell);
+    }
+  }
+
+  triggers.forEach(([r, c]) => {
+    grid[r][c] = TILE.TRIGGER;
+  });
+  grid[honey[0]][honey[1]] = TILE.HONEY;
+  grid[start[0]][start[1]] = TILE.START;
+
+  return grid.map((row) => row.join(""));
+}
+
+/** Distance from one tile to every reachable tile. */
+function floodFill(grid, rows, cols, from) {
+  const dist = new Map([[`${from[0]},${from[1]}`, 0]]);
+  const queue = [from];
+
+  while (queue.length > 0) {
+    const [r, c] = queue.shift();
+    const d = dist.get(`${r},${c}`);
+    [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ].forEach(([dr, dc]) => {
+      const nr = r + dr;
+      const nc = c + dc;
+      const k = `${nr},${nc}`;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return;
+      if (grid[nr][nc] === TILE.WALL || dist.has(k)) return;
+      dist.set(k, d + 1);
+      queue.push([nr, nc]);
+    });
+  }
+
+  return dist;
+}
+
+function shortestPath(grid, rows, cols, from, to) {
+  const prev = new Map([[`${from[0]},${from[1]}`, null]]);
+  const queue = [from];
+
+  while (queue.length > 0) {
+    const [r, c] = queue.shift();
+    if (r === to[0] && c === to[1]) break;
+    [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ].forEach(([dr, dc]) => {
+      const nr = r + dr;
+      const nc = c + dc;
+      const k = `${nr},${nc}`;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) return;
+      if (grid[nr][nc] === TILE.WALL || prev.has(k)) return;
+      prev.set(k, [r, c]);
+      queue.push([nr, nc]);
+    });
+  }
+
+  const path = [];
+  let node = to;
+  while (node) {
+    path.push(node);
+    node = prev.get(`${node[0]},${node[1]}`);
+  }
+  return path.reverse();
+}
+
+/**
+ * Arrow key directions leading from the bear to the honey pot.
+ * Used by the tests to play a generated maze without knowing its shape.
+ */
+function routeToHoney() {
+  const honey = findTile(TILE.HONEY);
+  if (!honey || !state.bear) return [];
+
+  const grid = MAZE.map((row) => row.split(""));
+  const cells = shortestPath(
+    grid,
+    ROWS,
+    COLS,
+    [state.bear.row, state.bear.col],
+    [honey.row, honey.col],
+  );
+
+  const names = {
+    "-1,0": "ArrowUp",
+    "1,0": "ArrowDown",
+    "0,-1": "ArrowLeft",
+    "0,1": "ArrowRight",
+  };
+
+  const moves = [];
+  for (let i = 1; i < cells.length; i++) {
+    const dr = cells[i][0] - cells[i - 1][0];
+    const dc = cells[i][1] - cells[i - 1][1];
+    moves.push(names[`${dr},${dc}`]);
+  }
+  return moves;
+}
+
+/** Generate a maze and point the module level MAZE/ROWS/COLS at it. */
+function installMaze(config = MAZE_CONFIG) {
+  MAZE = generateMaze(config);
+  ROWS = MAZE.length;
+  COLS = MAZE[0].length;
+  return MAZE;
+}
+
 /* ---------- game state ---------- */
 
 const state = {
-  bear: findTile(TILE.START),
+  bear: null,
   coins: 0,
   score: 0,
   steps: 0,
@@ -127,9 +428,18 @@ function key(row, col) {
   return `${row},${col}`;
 }
 
+/** How many question tiles this maze has. */
+function countTriggers() {
+  return MAZE.reduce(
+    (sum, row) => sum + row.split(TILE.TRIGGER).length - 1,
+    0,
+  );
+}
+
 /**
- * Fail loudly at load time rather than rendering a broken board.
- * check_maze.py does the same checks; this guards the copy in this file.
+ * Sanity check a generated maze before it is rendered.
+ * A generator bug that sealed off the honey pot would otherwise produce a
+ * board that simply cannot be finished, so this refuses to draw it.
  */
 function validateMaze() {
   const problems = [];
@@ -140,8 +450,46 @@ function validateMaze() {
     }
   });
 
-  if (!findTile(TILE.START)) problems.push("חסרה נקודת התחלה (S)");
-  if (!findTile(TILE.HONEY)) problems.push("חסר סיר דבש (H)");
+  const start = findTile(TILE.START);
+  const honey = findTile(TILE.HONEY);
+
+  if (!start) problems.push("חסרה נקודת התחלה");
+  if (!honey) problems.push("חסר סיר דבש");
+
+  // The outer ring must be solid or the bear can walk off the board.
+  for (let c = 0; c < COLS; c++) {
+    if (MAZE[0][c] !== TILE.WALL || MAZE[ROWS - 1][c] !== TILE.WALL) {
+      problems.push("גבול המבוך פרוץ");
+      break;
+    }
+  }
+  for (let r = 0; r < ROWS; r++) {
+    if (MAZE[r][0] !== TILE.WALL || MAZE[r][COLS - 1] !== TILE.WALL) {
+      problems.push("גבול המבוך פרוץ");
+      break;
+    }
+  }
+
+  if (start && honey) {
+    const grid = MAZE.map((row) => row.split(""));
+    const reach = floodFill(grid, ROWS, COLS, [start.row, start.col]);
+
+    if (!reach.has(key(honey.row, honey.col))) {
+      problems.push("אי אפשר להגיע לסיר הדבש");
+    }
+
+    const unreachableTriggers = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (MAZE[r][c] === TILE.TRIGGER && !reach.has(key(r, c))) {
+          unreachableTriggers.push(key(r, c));
+        }
+      }
+    }
+    if (unreachableTriggers.length > 0) {
+      problems.push(`יש שאלות שאי אפשר להגיע אליהן: ${unreachableTriggers.length}`);
+    }
+  }
 
   return problems;
 }
@@ -339,7 +687,9 @@ function paintCell(row, col) {
   } else if (tile === TILE.HONEY) {
     cell.classList.add("honey");
     cell.textContent = EMOJI.HONEY;
-  } else if (tile === TILE.TRIGGER) {
+  } else if (tile === TILE.TRIGGER && !state.usedTriggers.has(key(row, col))) {
+    // A used trigger leaves an ordinary floor tile behind, so the board
+    // shows at a glance which questions are still waiting.
     cell.classList.add("trigger");
     cell.textContent = EMOJI.TRIGGER;
   } else {
@@ -628,8 +978,9 @@ function onBearEntered(row, col) {
     paintCell(row, col);
 
     const asked = state.usedTriggers.size;
+    const total = countTriggers();
     askQuestion(drawQuestion(), {
-      tag: `שאלה ${asked}`,
+      tag: `שאלה ${asked} מתוך ${total}`,
       onDone: () => {
         const left = COINS_TO_OPEN_POT - state.coins;
         setStatus(
@@ -709,25 +1060,53 @@ function showWinScreen() {
   els.restartBtn.focus();
 }
 
-/** Reset everything and deal a fresh set of questions. */
+/** Reset everything, build a brand new maze and deal fresh questions. */
 function restartGame() {
-  state.bear = findTile(TILE.START);
+  const problems = buildNewMaze();
+  if (problems.length > 0) return;
+
   state.coins = 0;
   state.score = 0;
   state.steps = 0;
   state.bonusAsked = 0;
   state.won = false;
   state.paused = false;
-  state.usedTriggers = new Set();
   state.unasked = shuffle(state.questions.map((_, i) => i));
 
   activeQuestion = null;
   els.overlay.hidden = true;
   els.winOverlay.hidden = true;
 
-  drawBoard();
   updateStats();
   setStatus(`כדי לפתוח את סיר הדבש דרושים ${COINS_TO_OPEN_POT} מטבעות`);
+}
+
+/**
+ * Generate a fresh maze and rebuild the board.
+ * Retries a few times if the generator produces something unusable, then
+ * gives up and reports the problems rather than drawing a broken board.
+ */
+function buildNewMaze(attempts = 5) {
+  let problems = [];
+
+  for (let i = 0; i < attempts; i++) {
+    installMaze();
+    problems = validateMaze();
+    if (problems.length === 0) {
+      state.bear = findTile(TILE.START);
+      state.usedTriggers = new Set();
+      buildBoard();
+      return [];
+    }
+    console.warn("Discarded an invalid maze:", problems);
+  }
+
+  showFatalError(
+    "לא הצלחנו לבנות מבוך תקין.",
+    problems,
+    "רעננו את הדף כדי לנסות שוב.",
+  );
+  return problems;
 }
 
 /** Brief shake so bumping a tree reads as blocked, not as a broken key. */
@@ -847,17 +1226,6 @@ function showFileProtocolError() {
 /* ---------- init ---------- */
 
 async function init() {
-  const problems = validateMaze();
-  if (problems.length > 0) {
-    showFatalError(
-      "המבוך לא תקין ולכן המשחק לא נטען.",
-      problems,
-      "יש לתקן את המשתנה MAZE בקובץ game.js ולהריץ: python3 check_maze.py",
-    );
-    console.error("Maze validation failed:", problems);
-    return;
-  }
-
   try {
     state.questions = await loadQuestions();
   } catch (error) {
@@ -876,7 +1244,8 @@ async function init() {
 
   state.unasked = shuffle(state.questions.map((_, i) => i));
 
-  buildBoard();
+  if (buildNewMaze().length > 0) return;
+
   updateStats();
   setStatus(`כדי לפתוח את סיר הדבש דרושים ${COINS_TO_OPEN_POT} מטבעות`);
 

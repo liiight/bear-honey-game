@@ -4,6 +4,15 @@
 const fs = require("fs");
 const { freshDom, loadGame } = require("./test_dom");
 
+/*
+  This suite deliberately triggers every load failure, so game.js logs the
+  errors it is designed to log. Silence them: real output here would be a
+  test result line, and stray "Failed to load" noise makes a passing run
+  look broken.
+*/
+console.error = () => {};
+console.warn = () => {};
+
 /** Collect all text in a panel subtree. */
 function textOf(el) {
   let out = el.textContent || "";
@@ -77,12 +86,16 @@ async function run() {
     status: 200,
     text: async () => fs.readFileSync(url, "utf8"),
   });
-  await load().ready;
+  const loaded = load();
+  await loaded.ready;
 
   const cells = ids.maze.children.flatMap((c) =>
     c.tagName === "fragment" ? c.children : [c],
   );
-  check("board rendered", cells.length, 165);
+  // The maze is generated, so derive the expected cell count from it.
+  const built = loaded.getMaze();
+  check("board rendered", cells.length, built.length * built[0].length);
+  check("board is bigger than a single screenful of walls", built.length >= 15, true);
   check(
     "no error panel",
     ids.maze.children.some((c) => c.className === "error-panel"),
